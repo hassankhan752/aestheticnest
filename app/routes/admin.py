@@ -2,6 +2,7 @@ import re
 import secrets
 import math
 from decimal import Decimal, InvalidOperation
+from urllib.parse import parse_qs, urlparse
 
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_user, logout_user
@@ -13,6 +14,24 @@ from app.security import admin_required
 from app.services.aliexpress_api import AliExpressAPIError, client_from_config
 
 admin_bp = Blueprint("admin", __name__)
+
+
+def _is_aliexpress_tracking_link(url):
+    parsed = urlparse(url)
+    hostname = (parsed.hostname or "").lower()
+    short_link_hosts = {
+        "s.click.aliexpress.com",
+        "click.aliexpress.com",
+        "a.aliexpress.com",
+    }
+    tracking_parameters = {
+        "aff_fcid", "aff_fsk", "aff_platform", "aff_trace_key", "aff_short_key",
+    }
+    return (
+        hostname in short_link_hosts
+        or (hostname.endswith(".aliexpress.com") and parsed.path.startswith("/e/"))
+        or bool(tracking_parameters.intersection(parse_qs(parsed.query)))
+    )
 
 
 @admin_bp.route("/login", methods=["GET", "POST"])
@@ -95,13 +114,19 @@ def parse_product_form(form, product=None):
     if affiliate:
         if not affiliate_url:
             raise ValueError("Affiliate products need an AliExpress product URL.")
-        from urllib.parse import urlparse
         parsed = urlparse(affiliate_url)
         hostname = (parsed.hostname or "").lower()
         if parsed.scheme != "https" or not (hostname == "aliexpress.com" or hostname.endswith(".aliexpress.com")):
             raise ValueError("Affiliate URLs must point to AliExpress over HTTPS.")
         link = client_from_config(current_app.config)
-        if link.configured:
+        unchanged_existing_url = bool(
+            product
+            and product.is_affiliate
+            and product.affiliate_url
+            and affiliate_url == product.affiliate_url
+        )
+        already_converted = unchanged_existing_url or _is_aliexpress_tracking_link(affiliate_url)
+        if link.configured and not already_converted:
             try:
                 affiliate_url = link.generate_tracking_link(affiliate_url)
             except (AliExpressAPIError, ValueError) as exc:
