@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block title %}My account — Aesthetic Nest{% endblock %}
+{% block content %}
+<section class="admin-auth">
+  <p class="eyebrow">Your account</p>
+  <h1>Welcome <em>back.</em></h1>
+  <p>You’re signed in as <strong>{{ current_user.email }}</strong>.</p>
+  <form method="post" action="{{ url_for('auth.logout') }}" class="stack-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="button button-outline button-wide" type="submit">Sign out</button>
+  </form>
+</section>
+{% endblock %}

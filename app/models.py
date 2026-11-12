@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from flask_login import UserMixin
 from werkzeug.security import check_password_hash, generate_password_hash
+from sqlalchemy import CheckConstraint
 
 from app import db
 
@@ -12,12 +13,17 @@ def utcnow():
 
 
 class User(UserMixin, db.Model):
+    __table_args__ = (
+        CheckConstraint("role IN ('customer', 'admin', 'owner')", name="ck_user_role"),
+    )
+
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(254), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(32), nullable=False, default="owner")
+    role = db.Column(db.String(32), nullable=False, default="customer")
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password, method="scrypt")

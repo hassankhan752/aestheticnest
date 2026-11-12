@@ -1,5 +1,4 @@
 import os
-import re
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -24,8 +23,6 @@ class Config:
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True}
-    _admin_route = os.getenv("ADMIN_SECRET_ROUTE", "admin_secret_99812").strip("/")
-    ADMIN_SECRET_ROUTE = _admin_route if re.fullmatch(r"[A-Za-z0-9_-]{8,80}", _admin_route) else "admin_secret_99812"
     ADMIN_BOOTSTRAP_KEY = os.getenv("ADMIN_BOOTSTRAP_KEY", "")
     STORE_CURRENCY = os.getenv("STORE_CURRENCY", "USD").upper()
     STORE_NAME = os.getenv("STORE_NAME", "Aesthetic Nest")
@@ -33,7 +30,8 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = os.getenv(
-        "SESSION_COOKIE_SECURE", "false" if os.getenv("FLASK_ENV") != "production" else "true"
+        "SESSION_COOKIE_SECURE",
+        "true" if os.getenv("VERCEL") or os.getenv("FLASK_ENV") == "production" else "false",
     ).lower() == "true"
     REMEMBER_COOKIE_HTTPONLY = True
     REMEMBER_COOKIE_SAMESITE = "Lax"

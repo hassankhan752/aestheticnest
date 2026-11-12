@@ -14,7 +14,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` before the first run. Set a long random `SECRET_KEY`, choose a private `ADMIN_SECRET_ROUTE`, and set a one-time random `ADMIN_BOOTSTRAP_KEY`. For a local HTTP run set `FLASK_ENV=development` and `SESSION_COOKIE_SECURE=false`. Keep secure cookies enabled behind HTTPS in production.
+Edit `.env` before the first run. Set a long random `SECRET_KEY` and a one-time random `ADMIN_BOOTSTRAP_KEY`. For a local HTTP run set `FLASK_ENV=development` and `SESSION_COOKIE_SECURE=false`. Keep secure cookies enabled behind HTTPS in production.
 
 Generate secret values with `python -c 'import secrets; print(secrets.token_hex(32))'` and keep each key private.
 
@@ -23,7 +23,7 @@ flask --app wsgi db upgrade
 python run.py
 ```
 
-Open `http://127.0.0.1:5000`. The SQLite database and its tables are created at `instance/database.sqlite` by the initial migration. Create your first owner account at `/<ADMIN_SECRET_ROUTE>/bootstrap`; remove `ADMIN_BOOTSTRAP_KEY` from `.env` immediately after setup. The default secret path is `/admin_secret_99812`; change it before deployment. `/admin` redirects to the storefront.
+Open `http://127.0.0.1:5000`. The SQLite database and its tables are created at `instance/database.sqlite` by the migrations. Create your first owner account at `/admin/bootstrap`, then remove `ADMIN_BOOTSTRAP_KEY` from `.env`. Sign in to the studio at `/admin/login`; the dashboard is at `/admin/dashboard`. Customers can register and sign in at `/register` and `/login`.
 
 For a production WSGI server, put the app behind an HTTPS reverse proxy and run:
 
@@ -45,4 +45,4 @@ There is no seed catalog of invented products, supplier stock counts, prices, ph
 
 ## Security notes
 
-All browser POST routes use Flask-WTF CSRF protection. Stripe webhooks verify their signature instead of using browser CSRF. Admin entry points require an owner/admin role; failed or anonymous access redirects to the storefront. Passwords use Werkzeug scrypt hashes, checkout stock is rechecked at order placement, and payment status is not changed to paid from a browser return URL. Set `SECRET_KEY`, bootstrap key, SMTP credentials and payment/API secrets only in the server's private `.env` or secret manager.
+All browser POST routes use Flask-WTF CSRF protection. Stripe webhooks verify their signature instead of using browser CSRF. Admin entry points require an owner/admin role; unauthenticated access redirects to `/admin/login`. Passwords use Werkzeug scrypt hashes, checkout stock is rechecked at order placement, and payment status is not changed to paid from a browser return URL. Set `SECRET_KEY`, bootstrap key, SMTP credentials and payment/API secrets only in the server's private `.env` or secret manager.

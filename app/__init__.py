@@ -4,7 +4,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
-from flask import Flask, redirect, request, url_for
+from flask import Flask, request
 from flask_login import LoginManager
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -68,12 +68,13 @@ def create_app(test_config=None):
     csrf.init_app(app)
     login_manager.init_app(app)
 
-    login_manager.login_view = "main.home"
+    login_manager.login_view = "auth.login"
 
     limiter.init_app(app)
 
     # Import models and blueprints
     from app import models  # noqa: F401
+    from app.routes.auth import auth_bp
     from app.routes.admin import admin_bp
     from app.routes.affiliate import affiliate_bp
     from app.routes.checkout import checkout_bp
@@ -81,12 +82,10 @@ def create_app(test_config=None):
 
     # Register blueprints
     app.register_blueprint(main_bp)
+    app.register_blueprint(auth_bp)
     app.register_blueprint(checkout_bp)
     app.register_blueprint(affiliate_bp)
-    app.register_blueprint(
-        admin_bp,
-        url_prefix=f"/{app.config['ADMIN_SECRET_ROUTE']}"
-    )
+    app.register_blueprint(admin_bp, url_prefix="/admin")
 
     @app.context_processor
     def inject_store_settings():
@@ -95,11 +94,6 @@ def create_app(test_config=None):
             "store_currency": app.config["STORE_CURRENCY"],
             "now": lambda: datetime.now(timezone.utc),
         }
-
-    @app.before_request
-    def redirect_obvious_admin_paths():
-        if request.path in ("/admin", "/admin/"):
-            return redirect(url_for("admin.login"), code=302)
 
     @app.after_request
     def set_security_headers(response):

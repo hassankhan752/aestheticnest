@@ -17,6 +17,12 @@
     <button class="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" data-menu-toggle>☰</button>
     <nav class="main-nav" data-menu>
       <a href="{{ url_for('main.shop') }}">Shop</a><a href="{{ url_for('main.curated_finds') }}">Curated finds</a><a href="{{ url_for('main.home') }}#story">Our point of view</a>
+      {% if current_user.is_authenticated %}
+        {% if current_user.role in ['admin', 'owner'] %}<a href="{{ url_for('admin.dashboard') }}">Studio</a>{% else %}<a href="{{ url_for('auth.account') }}">My account</a>{% endif %}
+        <form class="nav-logout" method="post" action="{{ url_for('auth.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Logout</button></form>
+      {% else %}
+        <a href="{{ url_for('auth.login') }}">Login</a><a href="{{ url_for('auth.register') }}">Register</a>
+      {% endif %}
     </nav>
     <a class="bag-link" href="{{ url_for('checkout.cart') }}" aria-label="Shopping bag">Bag <span>{{ session.get('cart', {})|length }}</span></a>
   </header>

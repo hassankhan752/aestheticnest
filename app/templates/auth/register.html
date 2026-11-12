@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block title %}Create an account — Aesthetic Nest{% endblock %}
+{% block content %}
+<section class="admin-auth">
+  <a class="brand" href="{{ url_for('main.home') }}"><span class="brand-mark">an</span><span>Aesthetic <b>Nest</b><small>YOUR ACCOUNT</small></span></a>
+  <p class="eyebrow">A little more personal</p>
+  <h1>Create your <em>account.</em></h1>
+  <form method="post" class="stack-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>Email address<input type="email" name="email" autocomplete="email" maxlength="254" required></label>
+    <label>Password <span>(12 characters minimum)</span><input type="password" name="password" autocomplete="new-password" minlength="12" maxlength="1024" required></label>
+    <label>Confirm password<input type="password" name="password_confirm" autocomplete="new-password" minlength="12" maxlength="1024" required></label>
+    <button class="button button-dark button-wide" type="submit">Create account</button>
+  </form>
+  <p class="auth-note">Already have an account? <a href="{{ url_for('auth.login') }}">Sign in</a></p>
+</section>
+{% endblock %}

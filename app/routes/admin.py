@@ -37,15 +37,16 @@ def _is_aliexpress_tracking_link(url):
 @admin_bp.route("/login", methods=["GET", "POST"])
 @limiter.limit("5 per minute", methods=["POST"])
 def login():
-    if current_user.is_authenticated:
+    if current_user.is_authenticated and current_user.role in {"owner", "admin"}:
         return redirect(url_for("admin.dashboard"))
     if request.method == "POST":
         email = (request.form.get("email") or "").strip().lower()[:254]
+        password = request.form.get("password", "")
         user = User.query.filter_by(email=email, is_active=True).first()
-        if user and user.check_password(request.form.get("password", "")) and user.role in {"owner", "admin"}:
+        if len(password) <= 1024 and user and user.check_password(password) and user.role in {"owner", "admin"}:
             login_user(user, remember=False, fresh=True)
             return redirect(url_for("admin.dashboard"))
-        flash("Sign-in failed.", "error")
+        flash("Admin sign-in failed. Check your credentials and access level.", "error")
     return render_template("admin/login.html", bootstrap_allowed=not User.query.first() and bool(current_app.config["ADMIN_BOOTSTRAP_KEY"]))
 
 
@@ -62,8 +63,8 @@ def bootstrap():
         else:
             email = (request.form.get("email") or "").strip().lower()[:254]
             password = request.form.get("password", "")
-            if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) or len(password) < 14:
-                flash("Use a valid email and a password of at least 14 characters.", "error")
+            if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) or not 14 <= len(password) <= 1024:
+                flash("Use a valid email and a password between 14 and 1024 characters.", "error")
             else:
                 user = User(email=email, role="owner")
                 user.set_password(password)
@@ -83,6 +84,7 @@ def logout():
 
 
 @admin_bp.get("/")
+@admin_bp.get("/dashboard")
 @admin_required
 def dashboard():
     revenue = db.session.query(func.coalesce(func.sum(Order.total_amount), 0)).filter(Order.payment_status == "paid").scalar()
