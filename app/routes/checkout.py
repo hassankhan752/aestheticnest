@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 
 import stripe
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, session, url_for
+from flask_login import current_user
 from flask_wtf.csrf import validate_csrf
 from wtforms.validators import ValidationError
 
@@ -136,6 +137,7 @@ def submit_checkout():
         return redirect(url_for("checkout.checkout"))
 
     order = Order(
+        user_id=current_user.id if current_user.is_authenticated else None,
         customer_name=clean(request.form.get("customer_name"), 160),
         email=clean(request.form.get("email"), 254).lower(),
         phone=clean(request.form.get("phone"), 40),

@@ -269,7 +269,7 @@ def order_status(order_id):
     order = Order.query.get_or_404(order_id)
     status = request.form.get("status", "")
     tracking = " ".join((request.form.get("tracking_number") or "").split())[:100]
-    if status not in {"pending", "paid", "shipped", "cancelled"}:
+    if status not in {"pending", "paid", "shipped", "delivered", "cancelled"}:
         abort(400)
     if status == "shipped":
         if order.payment_status not in {"paid", "pending"}:
@@ -280,6 +280,15 @@ def order_status(order_id):
             return redirect(url_for("admin.orders_manage"))
         order.fulfillment_status = "shipped"
         order.tracking_number = tracking or None
+    elif status == "delivered":
+        if order.fulfillment_status != "shipped":
+            flash("Mark the order as shipped before marking it delivered.", "error")
+            return redirect(url_for("admin.orders_manage"))
+        if order.payment_provider == "stripe" and order.payment_status != "paid":
+            flash("Wait for Stripe to confirm payment before marking this order delivered.", "error")
+            return redirect(url_for("admin.orders_manage"))
+        order.fulfillment_status = "delivered"
+        order.tracking_number = tracking or order.tracking_number
     elif status == "cancelled":
         if order.payment_provider == "stripe" and order.payment_status == "pending":
             flash("This card session must expire before its reserved stock can be released.", "error")

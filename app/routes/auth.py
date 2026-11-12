@@ -2,10 +2,11 @@ import re
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from app import db, limiter
-from app.models import User
+from app.models import Order, User
 
 
 auth_bp = Blueprint("auth", __name__)
@@ -36,16 +37,25 @@ def register():
             user.set_password(password)
             db.session.add(user)
             try:
+                db.session.flush()
+                claimed_orders = Order.query.filter(
+                    Order.user_id.is_(None),
+                    func.lower(Order.email) == email,
+                ).update({Order.user_id: user.id}, synchronize_session=False)
                 db.session.commit()
             except IntegrityError:
                 db.session.rollback()
                 flash("An account with that email already exists.", "error")
             else:
                 login_user(user, remember=False, fresh=True)
-                flash("Your account is ready.", "success")
-                return redirect(url_for("auth.account"))
+                message = "Your account is ready."
+                if claimed_orders:
+                    message += f" {claimed_orders} previous order(s) are now linked to your account."
+                flash(message, "success")
+                return redirect(url_for("auth.tracking"))
 
-    return render_template("auth/register.html")
+    prefill_email = (request.args.get("email") or "").strip().lower()[:254]
+    return render_template("auth/register.html", prefill_email=prefill_email)
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
@@ -66,7 +76,7 @@ def login():
         ):
             login_user(user, remember=False, fresh=True)
             flash("You are signed in.", "success")
-            return redirect(url_for("auth.account"))
+            return redirect(url_for("auth.tracking"))
         flash("Email or password was not recognized.", "error")
 
     return render_template("auth/login.html")
@@ -85,4 +95,30 @@ def logout():
 def account():
     if current_user.role != "customer":
         return redirect(url_for("admin.dashboard"))
-    return render_template("auth/account.html")
+    return redirect(url_for("auth.tracking"))
+
+
+@auth_bp.get("/tracking")
+@login_required
+def tracking():
+    if current_user.role != "customer":
+        return redirect(url_for("admin.dashboard"))
+
+    orders = (
+        Order.query.filter_by(user_id=current_user.id)
+        .order_by(Order.created_at.desc())
+        .all()
+    )
+    statuses = {}
+    for order in orders:
+        if order.payment_status == "cancelled" or order.fulfillment_status == "cancelled":
+            statuses[order.id] = "Cancelled"
+        elif order.fulfillment_status == "delivered":
+            statuses[order.id] = "Delivered"
+        elif order.fulfillment_status == "shipped":
+            statuses[order.id] = "Shipped"
+        elif order.payment_status == "paid":
+            statuses[order.id] = "Processing"
+        else:
+            statuses[order.id] = "Pending"
+    return render_template("shop/tracking.html", orders=orders, statuses=statuses)

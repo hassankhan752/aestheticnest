@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Track your orders — Aesthetic Nest{% endblock %}
+{% block content %}
+<section class="tracking-page">
+  <header class="tracking-heading">
+    <p class="eyebrow">Your account</p>
+    <h1>Order <em>history.</em></h1>
+    <p>Welcome, {{ current_user.email }}. Find your order details and delivery progress below.</p>
+  </header>
+
+  {% if orders %}
+  <div class="tracking-list">
+    {% for order in orders %}
+    <article class="tracking-order">
+      <header class="tracking-order-head">
+        <div>
+          <p class="eyebrow">Order placed {{ order.created_at.strftime('%B %d, %Y') }}</p>
+          <h2>Order #{{ order.public_id[:8]|upper }}</h2>
+        </div>
+        <span class="status status-{{ statuses[order.id]|lower }}">{{ statuses[order.id] }}</span>
+      </header>
+      <ul class="tracking-items">
+        {% for item in order.items %}
+        <li><span>{{ item.quantity }} × {{ item.product_title }}</span><strong>{{ order.currency }} {{ '%.2f'|format(item.unit_price * item.quantity) }}</strong></li>
+        {% endfor %}
+      </ul>
+      <footer class="tracking-order-foot">
+        <span>{{ order.payment_status|replace('_', ' ')|title }} · {{ order.fulfillment_status|replace('_', ' ')|title }}</span>
+        <strong>Total: {{ order.currency }} {{ '%.2f'|format(order.total_amount) }}</strong>
+      </footer>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <section class="tracking-empty">
+    <h2>No orders linked yet</h2>
+    <p>Orders placed while signed in will appear here. If you checked out as a guest, create an account using the same email address to claim your order.</p>
+    <a class="button button-dark" href="{{ url_for('main.shop') }}">Explore the collection</a>
+  </section>
+  {% endif %}
+</section>
+{% endblock %}

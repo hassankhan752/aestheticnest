@@ -7,7 +7,7 @@
   <h1>Create your <em>account.</em></h1>
   <form method="post" class="stack-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label>Email address<input type="email" name="email" autocomplete="email" maxlength="254" required></label>
+    <label>Email address<input type="email" name="email" autocomplete="email" maxlength="254" value="{{ prefill_email or '' }}" required></label>
     <label>Password <span>(12 characters minimum)</span><input type="password" name="password" autocomplete="new-password" minlength="12" maxlength="1024" required></label>
     <label>Confirm password<input type="password" name="password_confirm" autocomplete="new-password" minlength="12" maxlength="1024" required></label>
     <button class="button button-dark button-wide" type="submit">Create account</button>
