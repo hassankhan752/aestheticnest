@@ -25,9 +25,15 @@
         {% endfor %}
       </ul>
       <footer class="tracking-order-foot">
-        <span>{{ order.payment_status|replace('_', ' ')|title }} · {{ order.fulfillment_status|replace('_', ' ')|title }}</span>
+        <span>{{ order.payment_status|replace('_', ' ')|title }} · {{ statuses[order.id] }}</span>
         <strong>Total: {{ order.currency }} {{ '%.2f'|format(order.total_amount) }}</strong>
       </footer>
+      {% if order.tracking_number or order.logistics_service %}
+      <div class="tracking-carrier">
+        {% if order.logistics_service %}<span>Carrier: <strong>{{ order.logistics_service }}</strong></span>{% endif %}
+        {% if order.tracking_number %}<span>Tracking number: <strong>{{ order.tracking_number }}</strong></span>{% endif %}
+      </div>
+      {% endif %}
     </article>
     {% endfor %}
   </div>

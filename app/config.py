@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -48,9 +49,43 @@ class Config:
     ALIEXPRESS_TRACKING_ID = os.getenv("ALIEXPRESS_TRACKING_ID", "")
     ALIEXPRESS_API_URL = os.getenv("ALIEXPRESS_API_URL", "https://eco.taobao.com/router/rest")
     ALIEXPRESS_SESSION = os.getenv("ALIEXPRESS_SESSION", "")
+    ALIEXPRESS_DS_APP_KEY = os.getenv("ALIEXPRESS_DS_APP_KEY", "")
+    ALIEXPRESS_DS_APP_SECRET = os.getenv("ALIEXPRESS_DS_APP_SECRET", "")
+    ALIEXPRESS_DS_REDIRECT_URI = os.getenv("ALIEXPRESS_DS_REDIRECT_URI", "")
+    ALIEXPRESS_AFFILIATE_APP_KEY = os.getenv("ALIEXPRESS_AFFILIATE_APP_KEY") or ALIEXPRESS_APP_KEY
+    ALIEXPRESS_AFFILIATE_APP_SECRET = os.getenv("ALIEXPRESS_AFFILIATE_APP_SECRET") or ALIEXPRESS_APP_SECRET
+    ALIEXPRESS_AFFILIATE_TRACKING_ID = os.getenv("ALIEXPRESS_AFFILIATE_TRACKING_ID") or ALIEXPRESS_TRACKING_ID
+    ALIEXPRESS_SYNC_URL = os.getenv("ALIEXPRESS_SYNC_URL", "https://api-sg.aliexpress.com/sync")
+    ALIEXPRESS_REST_URL = os.getenv("ALIEXPRESS_REST_URL", "https://api-sg.aliexpress.com/rest")
+    ALIEXPRESS_DS_LOGISTICS_SERVICE_NAME = os.getenv("ALIEXPRESS_DS_LOGISTICS_SERVICE_NAME", "")
     MAIL_SERVER = os.getenv("MAIL_SERVER", "")
     MAIL_PORT = int(os.getenv("MAIL_PORT", "587"))
     MAIL_USE_TLS = os.getenv("MAIL_USE_TLS", "true").lower() == "true"
     MAIL_USERNAME = os.getenv("MAIL_USERNAME", "")
     MAIL_PASSWORD = os.getenv("MAIL_PASSWORD", "")
     MAIL_DEFAULT_SENDER = os.getenv("MAIL_DEFAULT_SENDER", "")
+
+
+def validate_aliexpress_config(config):
+    ds_key = config.get("ALIEXPRESS_DS_APP_KEY", "")
+    ds_secret = config.get("ALIEXPRESS_DS_APP_SECRET", "")
+    ds_redirect = config.get("ALIEXPRESS_DS_REDIRECT_URI", "")
+    if bool(ds_key) != bool(ds_secret):
+        raise RuntimeError("Set both ALIEXPRESS_DS_APP_KEY and ALIEXPRESS_DS_APP_SECRET.")
+    if ds_key and ds_secret and not ds_redirect:
+        raise RuntimeError("Dropshipping AliExpress credentials require ALIEXPRESS_DS_REDIRECT_URI.")
+    if ds_redirect:
+        parsed = urlparse(ds_redirect)
+        if parsed.scheme != "https" or not parsed.netloc:
+            raise RuntimeError("ALIEXPRESS_DS_REDIRECT_URI must be an absolute HTTPS URL.")
+
+    affiliate_values = (
+        config.get("ALIEXPRESS_AFFILIATE_APP_KEY", ""),
+        config.get("ALIEXPRESS_AFFILIATE_APP_SECRET", ""),
+        config.get("ALIEXPRESS_AFFILIATE_TRACKING_ID", ""),
+    )
+    if any(affiliate_values) and not all(affiliate_values):
+        raise RuntimeError(
+            "Affiliate integration requires ALIEXPRESS_AFFILIATE_APP_KEY, "
+            "ALIEXPRESS_AFFILIATE_APP_SECRET, and ALIEXPRESS_AFFILIATE_TRACKING_ID."
+        )

@@ -34,6 +34,16 @@ class User(UserMixin, db.Model):
     orders = db.relationship("Order", back_populates="user")
 
 
+class AliExpressToken(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    access_token = db.Column(db.Text, nullable=False)
+    refresh_token = db.Column(db.Text, nullable=False)
+    expires_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    refresh_expires_at = db.Column(db.DateTime(timezone=True), nullable=False)
+    account_user_id = db.Column(db.String(128))
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(180), nullable=False)
@@ -46,6 +56,11 @@ class Product(db.Model):
     is_affiliate = db.Column(db.Boolean, nullable=False, default=False, index=True)
     affiliate_url = db.Column(db.String(2048))
     aliexpress_item_id = db.Column(db.String(80))
+    aliexpress_product_id = db.Column(db.String(80), index=True)
+    aliexpress_sku_attr = db.Column(db.String(255))
+    aliexpress_source_url = db.Column(db.String(2048))
+    aliexpress_stock_status = db.Column(db.String(80))
+    supplier_price = db.Column(db.Numeric(10, 2))
     commission_rate = db.Column(db.Float, nullable=False, default=0.0)
     category = db.Column(db.String(80), nullable=False)
     images = db.Column(db.JSON, nullable=False, default=list)
@@ -59,6 +74,7 @@ class Product(db.Model):
 class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id", ondelete="SET NULL"), index=True)
+    aliexpress_order_id = db.Column(db.String(255), index=True)
     public_id = db.Column(db.String(36), unique=True, nullable=False, default=lambda: str(uuid.uuid4()), index=True)
     customer_name = db.Column(db.String(160), nullable=False)
     email = db.Column(db.String(254), nullable=False, index=True)
@@ -73,7 +89,9 @@ class Order(db.Model):
     payment_provider = db.Column(db.String(40), nullable=False, default="unconfigured")
     payment_reference = db.Column(db.String(200))
     fulfillment_status = db.Column(db.String(20), nullable=False, default="unfulfilled")
+    fulfillment_error = db.Column(db.Text)
     tracking_number = db.Column(db.String(100))
+    logistics_service = db.Column(db.String(120))
     total_amount = db.Column(db.Numeric(10, 2), nullable=False)
     currency = db.Column(db.String(3), nullable=False, default="USD")
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utcnow)

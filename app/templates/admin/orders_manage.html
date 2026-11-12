@@ -1,1 +1,59 @@
-{% extends 'admin/base_admin.html' %}{% block title %}Orders{% endblock %}{% block crumb %}Orders{% endblock %}{% block admin_content %}<div class="admin-page-head"><div><p class="eyebrow">The order book</p><h1>Orders & <em>fulfilment.</em></h1><p>Review purchases, confirm payment and add shipping details.</p></div></div><section class="admin-card"><div class="admin-card-head"><h2>All orders <span class="count-pill">{{ orders|length }}</span></h2></div>{% if orders %}<div class="table-scroll"><table><thead><tr><th>Order / items</th><th>Customer</th><th>Total</th><th>Payment</th><th>Fulfilment</th><th>Update</th></tr></thead><tbody>{% for order in orders %}<tr><td><strong>#{{ order.public_id[:8]|upper }}</strong><small class="table-sub">{% for item in order.items %}{{ item.quantity }} × {{ item.product_title }}{% if not loop.last %}<br>{% endif %}{% endfor %}</small></td><td>{{ order.customer_name }}<small class="table-sub">{{ order.email }}<br>{{ order.address_line1 }}, {{ order.city }}</small></td><td>{{ order.currency }} {{ '%.2f'|format(order.total_amount) }}<small class="table-sub">{{ order.payment_provider|replace('_',' ')|title }}</small></td><td><span class="status status-{{ order.payment_status }}">{{ order.payment_status|title }}</span></td><td>{{ order.fulfillment_status|title }}{% if order.tracking_number %}<small class="table-sub">{{ order.tracking_number }}</small>{% endif %}</td><td><form class="order-update-form" method="post" action="{{ url_for('admin.order_status', order_id=order.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><select name="status" aria-label="Order status"><option value="pending">Pending</option><option value="paid">Paid</option><option value="shipped">Shipped</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select><input name="tracking_number" placeholder="Tracking number" value="{{ order.tracking_number or '' }}"><button class="button button-small button-dark">Update</button></form><a class="packing-link" href="{{ url_for('admin.packing_slip', order_id=order.id) }}" target="_blank" rel="noopener">Packing slip ↗</a></td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="admin-empty">New orders will appear here as soon as a customer completes checkout.</div>{% endif %}</section>{% endblock %}
+{% extends 'admin/base_admin.html' %}
+{% block title %}Orders{% endblock %}
+{% block crumb %}Orders{% endblock %}
+{% block admin_content %}
+<div class="admin-page-head">
+  <div><p class="eyebrow">The order book</p><h1>Orders & <em>fulfilment.</em></h1><p>Review purchases, confirm payment, and manage supplier tracking.</p></div>
+  <form method="post" action="{{ url_for('admin.sync_all_aliexpress_tracking') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="button button-outline">Sync AliExpress tracking</button>
+  </form>
+</div>
+<section class="admin-card">
+  <div class="admin-card-head"><h2>All orders <span class="count-pill">{{ orders|length }}</span></h2></div>
+  {% if orders %}
+  <div class="table-scroll"><table>
+    <thead><tr><th>Order / items</th><th>Customer</th><th>Total</th><th>Payment</th><th>Fulfilment & tracking</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for order in orders %}
+      <tr>
+        <td><strong>#{{ order.public_id[:8]|upper }}</strong><small class="table-sub">{% for item in order.items %}{{ item.quantity }} × {{ item.product_title }}{% if not loop.last %}<br>{% endif %}{% endfor %}</small></td>
+        <td>{{ order.customer_name }}<small class="table-sub">{{ order.email }}<br>{{ order.address_line1 }}, {{ order.city }}</small></td>
+        <td>{{ order.currency }} {{ '%.2f'|format(order.total_amount) }}<small class="table-sub">{{ order.payment_provider|replace('_',' ')|title }}</small></td>
+        <td><span class="status status-{{ order.payment_status }}">{{ order.payment_status|title }}</span></td>
+        <td>
+          {{ order.fulfillment_status|title }}
+          {% if order.aliexpress_order_id %}<small class="table-sub">AliExpress order {{ order.aliexpress_order_id }}</small>{% endif %}
+          {% if order.tracking_number %}<small class="table-sub">{{ order.tracking_number }}</small>{% endif %}
+          {% if order.logistics_service %}<small class="table-sub">{{ order.logistics_service }}</small>{% endif %}
+          {% if order.fulfillment_error %}<small class="table-sub fulfillment-error">{{ order.fulfillment_error }}</small>{% endif %}
+        </td>
+        <td>
+          <form class="order-update-form" method="post" action="{{ url_for('admin.order_status', order_id=order.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <select name="status" aria-label="Order status"><option value="pending">Pending</option><option value="paid">Paid</option><option value="shipped">Shipped</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select>
+            <input name="tracking_number" placeholder="Tracking number" value="{{ order.tracking_number or '' }}">
+            <button class="button button-small button-dark">Update</button>
+          </form>
+          {% if not order.aliexpress_order_id and order.fulfillment_status not in ['placed', 'shipped', 'delivered'] and order.payment_status != 'cancelled' %}
+          <form class="order-update-form ali-fulfill-form" method="post" action="{{ url_for('admin.fulfill_order_aliexpress', order_id=order.id) }}" data-confirm="Place this order with AliExpress now?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input name="logistics_service" maxlength="120" placeholder="Logistics service (optional)">
+            <button class="button button-small button-outline">Fulfill via AliExpress</button>
+          </form>
+          {% endif %}
+          {% if order.aliexpress_order_id %}
+          <form method="post" action="{{ url_for('admin.sync_order_tracking', order_id=order.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="button button-small button-outline">Sync tracking</button>
+          </form>
+          {% endif %}
+          <a class="packing-link" href="{{ url_for('admin.packing_slip', order_id=order.id) }}" target="_blank" rel="noopener">Packing slip ↗</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<div class="admin-empty">New orders will appear here as soon as a customer completes checkout.</div>{% endif %}
+</section>
+{% endblock %}

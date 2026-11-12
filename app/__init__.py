@@ -50,6 +50,9 @@ def create_app(test_config=None):
     if test_config:
         app.config.update(test_config)
 
+    from app.config import validate_aliexpress_config
+    validate_aliexpress_config(app.config)
+
     if not app.config.get("SECRET_KEY"):
         if app.config.get("TESTING"):
             app.config["SECRET_KEY"] = "test-only-secret"
