@@ -11,6 +11,7 @@ from flask_limiter.util import get_remote_address
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from flask_wtf.csrf import CSRFProtect
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 
 db = SQLAlchemy()
@@ -35,6 +36,13 @@ def create_app(test_config=None):
         __name__,
         instance_path=instance_path,
         instance_relative_config=True
+    )
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=1,
+        x_proto=1,
+        x_host=1,
+        x_prefix=1,
     )
 
     app.config.from_object("app.config.Config")
@@ -91,7 +99,7 @@ def create_app(test_config=None):
     @app.before_request
     def redirect_obvious_admin_paths():
         if request.path in ("/admin", "/admin/"):
-            return redirect(url_for("main.home"), code=302)
+            return redirect(url_for("admin.login"), code=302)
 
     @app.after_request
     def set_security_headers(response):
