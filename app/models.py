@@ -35,6 +35,7 @@ class User(UserMixin, db.Model):
 
 
 class AliExpressToken(db.Model):
+    __tablename__ = "aliexpress_token"
     id = db.Column(db.Integer, primary_key=True)
     access_token = db.Column(db.Text, nullable=False)
     refresh_token = db.Column(db.Text, nullable=False)
