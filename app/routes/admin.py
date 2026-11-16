@@ -11,10 +11,24 @@ from sqlalchemy import func
 
 from app import db, limiter
 from app.models import AffiliateClick, AliExpressToken, Order, Product, User
-from app.security import admin_required
+from app.security import admin_required, persistent_limit
 from app.services.aliexpress_client import AliExpressAPIError, AliExpressOpenPlatformClient, client_from_config
 
 admin_bp = Blueprint("admin", __name__)
+
+
+@admin_bp.before_request
+def enforce_admin_access():
+    if request.endpoint in {"admin.login", "admin.bootstrap"}:
+        return None
+    if (
+        not current_user.is_authenticated
+        or not current_user.is_active
+        or current_user.role not in {"owner", "admin"}
+    ):
+        flash("Access denied. Admin privileges required.", "error")
+        return redirect(url_for("admin.login"), code=302)
+    return None
 
 
 def _is_aliexpress_tracking_link(url):
@@ -36,15 +50,20 @@ def _is_aliexpress_tracking_link(url):
 
 
 @admin_bp.route("/login", methods=["GET", "POST"])
-@limiter.limit("5 per minute", methods=["POST"])
+@persistent_limit(5, 60, methods=("POST",))
 def login():
-    if current_user.is_authenticated and current_user.role in {"owner", "admin"}:
+    if (
+        current_user.is_authenticated
+        and current_user.is_active
+        and current_user.role in {"owner", "admin"}
+    ):
         return redirect(url_for("admin.dashboard"))
     if request.method == "POST":
-        email = (request.form.get("email") or "").strip().lower()[:254]
+        email = (request.form.get("email") or "").strip().lower()
         password = request.form.get("password", "")
-        user = User.query.filter_by(email=email, is_active=True).first()
+        user = User.query.filter_by(email=email, is_active=True).first() if len(email) <= 254 else None
         if len(password) <= 1024 and user and user.check_password(password) and user.role in {"owner", "admin"}:
+            session.clear()
             login_user(user, remember=False, fresh=True)
             return redirect(url_for("admin.dashboard"))
         flash("Admin sign-in failed. Check your credentials and access level.", "error")
@@ -71,6 +90,7 @@ def bootstrap():
                 user.set_password(password)
                 db.session.add(user)
                 db.session.commit()
+                session.clear()
                 login_user(user, fresh=True)
                 flash("Owner account created. Remove the bootstrap key from your .env file now.", "success")
                 return redirect(url_for("admin.dashboard"))
@@ -80,6 +100,7 @@ def bootstrap():
 @admin_bp.post("/logout")
 @admin_required
 def logout():
+    session.clear()
     logout_user()
     return redirect(url_for("main.home"))
 
@@ -97,9 +118,31 @@ def dashboard():
 
 
 def parse_product_form(form, product=None):
-    title = " ".join((form.get("title") or "").split())[:180]
-    description = (form.get("description") or "").strip()[:12000]
-    category = (form.get("category") or "").strip()[:80]
+    limits = {
+        "title": 180,
+        "description": 12000,
+        "category": 80,
+        "price": 32,
+        "compare_at_price": 32,
+        "stock_quantity": 10,
+        "affiliate_url": 2048,
+        "aliexpress_item_id": 80,
+        "aliexpress_product_id": 80,
+        "aliexpress_sku_attr": 255,
+        "aliexpress_source_url": 2048,
+        "aliexpress_stock_status": 80,
+        "supplier_price": 32,
+        "commission_rate": 32,
+        "images": 8 * 2048 + 7,
+        "is_affiliate": 1,
+        "is_featured": 1,
+        "is_active": 1,
+    }
+    if any(len(form.get(key, "")) > maximum for key, maximum in limits.items()):
+        raise ValueError("One or more product fields exceed the allowed length.")
+    title = " ".join((form.get("title") or "").split())
+    description = (form.get("description") or "").strip()
+    category = (form.get("category") or "").strip()
     allowed = {"Home & Living", "Smart Lighting", "Workspace", "Kitchen & Coffee"}
     if not title or not description or category not in allowed:
         raise ValueError("Enter a title, description, and one of the listed categories.")
@@ -112,12 +155,12 @@ def parse_product_form(form, product=None):
     if not price.is_finite() or (compare is not None and not compare.is_finite()) or price <= 0 or price > 1000000 or (compare is not None and compare < price) or stock < 0 or stock > 1000000:
         raise ValueError("Price must be positive, compare price must be higher, and stock cannot be negative.")
     affiliate = form.get("is_affiliate") == "1"
-    affiliate_url = (form.get("affiliate_url") or "").strip()[:2048] or None
-    item_id = (form.get("aliexpress_item_id") or "").strip()[:80] or None
-    aliexpress_product_id = (form.get("aliexpress_product_id") or item_id or "").strip()[:80] or None
-    aliexpress_sku_attr = (form.get("aliexpress_sku_attr") or "").strip()[:255] or None
-    aliexpress_source_url = (form.get("aliexpress_source_url") or "").strip()[:2048] or None
-    aliexpress_stock_status = (form.get("aliexpress_stock_status") or "").strip()[:80] or None
+    affiliate_url = (form.get("affiliate_url") or "").strip() or None
+    item_id = (form.get("aliexpress_item_id") or "").strip() or None
+    aliexpress_product_id = (form.get("aliexpress_product_id") or item_id or "").strip() or None
+    aliexpress_sku_attr = (form.get("aliexpress_sku_attr") or "").strip() or None
+    aliexpress_source_url = (form.get("aliexpress_source_url") or "").strip() or None
+    aliexpress_stock_status = (form.get("aliexpress_stock_status") or "").strip() or None
     supplier_price_raw = (form.get("supplier_price") or "").strip()
     try:
         supplier_price = Decimal(supplier_price_raw) if supplier_price_raw else None
@@ -126,14 +169,20 @@ def parse_product_form(form, product=None):
     if supplier_price is not None and (not supplier_price.is_finite() or supplier_price < 0 or supplier_price > 1000000):
         raise ValueError("Supplier price must be between 0 and 1,000,000.")
     if aliexpress_source_url:
-        source = urlparse(aliexpress_source_url)
+        try:
+            source = urlparse(aliexpress_source_url)
+        except ValueError as exc:
+            raise ValueError("AliExpress source URL is invalid.") from exc
         host = (source.hostname or "").lower()
         if source.scheme != "https" or not (host == "aliexpress.com" or host.endswith(".aliexpress.com")):
             raise ValueError("AliExpress source URL must use HTTPS and point to AliExpress.")
     if affiliate:
         if not affiliate_url:
             raise ValueError("Affiliate products need an AliExpress product URL.")
-        parsed = urlparse(affiliate_url)
+        try:
+            parsed = urlparse(affiliate_url)
+        except ValueError as exc:
+            raise ValueError("Affiliate URL is invalid.") from exc
         hostname = (parsed.hostname or "").lower()
         if parsed.scheme != "https" or not (hostname == "aliexpress.com" or hostname.endswith(".aliexpress.com")):
             raise ValueError("Affiliate URLs must point to AliExpress over HTTPS.")
@@ -155,7 +204,15 @@ def parse_product_form(form, product=None):
         url = raw.strip()
         if not url:
             continue
-        if not url.startswith("https://") or len(url) > 2048:
+        try:
+            image_url = urlparse(url)
+        except ValueError as exc:
+            raise ValueError("Every image needs to be a valid https URL.") from exc
+        if (
+            image_url.scheme != "https"
+            or not image_url.hostname
+            or len(url) > 2048
+        ):
             raise ValueError("Every image needs to be an https URL.")
         images.append(url)
     if len(images) > 8:
@@ -172,11 +229,11 @@ def parse_product_form(form, product=None):
     product.supplier_price = supplier_price
     try:
         rate = float(form.get("commission_rate", "0") or 0)
-        if not math.isfinite(rate):
-            raise ValueError("Commission rate must be a number.")
-        product.commission_rate = max(0, min(rate, 100))
     except ValueError:
         raise ValueError("Commission rate must be a number.")
+    if not math.isfinite(rate) or not 0 <= rate <= 100:
+        raise ValueError("Commission rate must be between 0 and 100.")
+    product.commission_rate = rate
     product.images = images
     product.is_featured = form.get("is_featured") == "1"
     product.is_active = form.get("is_active") == "1"
@@ -243,6 +300,7 @@ def product_delete(product_id):
 
 @admin_bp.post("/products/<int:product_id>/sync")
 @admin_required
+@persistent_limit(10, 60)
 def product_sync(product_id):
     product = Product.query.get_or_404(product_id)
     ali_product_id = product.aliexpress_product_id or product.aliexpress_item_id
@@ -309,13 +367,21 @@ def aliexpress_connect():
 def aliexpress_callback():
     state_record = session.pop("aliexpress_oauth_state", None)
     callback_state = request.args.get("state", "")
-    if not isinstance(state_record, dict) or not secrets.compare_digest(
-        str(state_record.get("value", "")), callback_state
+    if (
+        not isinstance(state_record, dict)
+        or not isinstance(state_record.get("value"), str)
+        or not callback_state
+        or len(callback_state) > 256
+        or not secrets.compare_digest(state_record["value"], callback_state)
     ):
         flash("AliExpress authorization could not be verified. Please connect again.", "error")
         return redirect(url_for("admin.settings"))
-    created_at = int(state_record.get("created_at", 0))
-    if int(datetime.now(timezone.utc).timestamp()) - created_at > 600:
+    try:
+        created_at = int(state_record.get("created_at", 0))
+    except (TypeError, ValueError):
+        created_at = 0
+    age = int(datetime.now(timezone.utc).timestamp()) - created_at
+    if not 0 <= age <= 600:
         flash("AliExpress authorization expired. Please connect again.", "error")
         return redirect(url_for("admin.settings"))
     if request.args.get("error"):
@@ -349,7 +415,9 @@ def aliexpress_callback():
 
 
 def _product_id_from_input(value):
-    value = (value or "").strip()[:2048]
+    value = (value or "").strip()
+    if len(value) > 2048:
+        raise ValueError("AliExpress product ID or URL is too long.")
     if value.isdigit() and 5 <= len(value) <= 32:
         return value, None
     parsed = urlparse(value)
@@ -369,7 +437,7 @@ def _product_id_from_input(value):
 
 @admin_bp.post("/aliexpress/import-product")
 @admin_required
-@limiter.limit("10 per minute")
+@persistent_limit(10, 60)
 def aliexpress_import_product():
     raw_id = request.form.get("product_id") or request.form.get("product_url") or ""
     try:
@@ -502,7 +570,7 @@ def _sync_order_tracking(order, client):
 
 @admin_bp.post("/orders/<int:order_id>/fulfill-aliexpress")
 @admin_required
-@limiter.limit("10 per minute")
+@persistent_limit(10, 60)
 def fulfill_order_aliexpress(order_id):
     order = Order.query.get_or_404(order_id)
     if order.aliexpress_order_id or order.fulfillment_status in {"placed", "shipped", "delivered"}:
@@ -515,10 +583,14 @@ def fulfill_order_aliexpress(order_id):
         flash("Wait for Stripe to confirm payment before fulfilling this order.", "error")
         return redirect(url_for("admin.orders_manage"))
 
+    logistics_service = (request.form.get("logistics_service") or "").strip()
+    if len(logistics_service) > 120:
+        flash("The logistics service name is too long.", "error")
+        return redirect(url_for("admin.orders_manage"))
     try:
         external_ids = client_from_config(current_app.config).place_dropshipping_order(
             order,
-            logistics_service_name=(request.form.get("logistics_service") or "").strip()[:120]
+            logistics_service_name=logistics_service
             or current_app.config.get("ALIEXPRESS_DS_LOGISTICS_SERVICE_NAME", ""),
         )
         order.aliexpress_order_id = ",".join(external_ids)[:255]
@@ -539,7 +611,7 @@ def fulfill_order_aliexpress(order_id):
 
 @admin_bp.post("/orders/<int:order_id>/sync-tracking")
 @admin_required
-@limiter.limit("30 per minute")
+@persistent_limit(30, 60)
 def sync_order_tracking(order_id):
     order = Order.query.get_or_404(order_id)
     try:
@@ -557,7 +629,7 @@ def sync_order_tracking(order_id):
 
 @admin_bp.post("/aliexpress/sync-all-tracking")
 @admin_required
-@limiter.limit("3 per minute")
+@persistent_limit(3, 60)
 def sync_all_aliexpress_tracking():
     client = client_from_config(current_app.config)
     orders = (
@@ -591,7 +663,10 @@ def sync_all_aliexpress_tracking():
 def order_status(order_id):
     order = Order.query.get_or_404(order_id)
     status = request.form.get("status", "")
-    tracking = " ".join((request.form.get("tracking_number") or "").split())[:100]
+    tracking = " ".join((request.form.get("tracking_number") or "").split())
+    if len(tracking) > 100:
+        flash("Tracking numbers must be 100 characters or fewer.", "error")
+        return redirect(url_for("admin.orders_manage"))
     if status not in {"pending", "paid", "shipped", "delivered", "cancelled"}:
         abort(400)
     if status == "shipped":
@@ -655,14 +730,21 @@ def settings():
 
 @admin_bp.route("/import", methods=["GET", "POST"])
 @admin_required
+@persistent_limit(20, 60, methods=("POST",))
 def import_products():
     results = []
     if request.method == "POST":
         client = client_from_config(current_app.config)
-        keyword = " ".join((request.form.get("keyword") or "").split())[:100]
+        keyword = " ".join((request.form.get("keyword") or "").split())
         try:
             minimum = float(request.form.get("min_commission", "0") or 0)
-            category = request.form.get("category_id", "").strip()[:30] or None
+            category = request.form.get("category_id", "").strip() or None
+            if len(keyword) > 100 or (category and (
+                len(category) > 30 or not re.fullmatch(r"[A-Za-z0-9_-]+", category)
+            )):
+                raise ValueError("Search phrase or category ID is invalid.")
+            if not math.isfinite(minimum) or not 0 <= minimum <= 100:
+                raise ValueError("Minimum commission must be between 0 and 100.")
             results = (
                 client.search_hot_products(category_id=category, min_commission=minimum)
                 if request.form.get("search_mode") == "hot"
@@ -676,24 +758,63 @@ def import_products():
 
 @admin_bp.post("/import/create")
 @admin_required
+@persistent_limit(20, 60)
 def create_imported_product():
-    title = " ".join((request.form.get("title") or "").split())[:180]
-    url = request.form.get("url", "")[:2048]
+    title = " ".join((request.form.get("title") or "").split())
+    url = request.form.get("url", "").strip()
     price = request.form.get("price", "")
     try:
+        source_url = request.form.get("source_url", "").strip()
+        item_id = request.form.get("item_id", "").strip()
+        stock_status = request.form.get("stock_status", "").strip()
+        image = request.form.get("image", "").strip()
+        if (
+            not title
+            or len(title) > 180
+            or len(url) > 2048
+            or len(price) > 32
+            or len(source_url) > 2048
+            or len(item_id) > 80
+            or len(stock_status) > 80
+            or len(image) > 2048
+            or len(request.form.get("commission_rate", "0")) > 32
+        ):
+            raise ValueError("One or more imported product fields are invalid.")
+        affiliate = urlparse(url)
+        source = urlparse(source_url) if source_url else None
+        image_url = urlparse(image) if image else None
+        def allowed_host(parsed):
+            hostname = (parsed.hostname or "").lower() if parsed else ""
+            return bool(
+                parsed
+                and parsed.scheme == "https"
+                and (
+                    hostname == "aliexpress.com"
+                    or hostname.endswith(".aliexpress.com")
+                )
+            )
+
+        if not allowed_host(affiliate) or (source and not allowed_host(source)):
+            raise ValueError("Imported product URLs must use HTTPS and point to AliExpress.")
+        if image_url and (image_url.scheme != "https" or not image_url.hostname):
+            raise ValueError("Product images must use a valid HTTPS URL.")
+        commission = float(request.form.get("commission_rate", "0") or 0)
+        if not math.isfinite(commission) or not 0 <= commission <= 100:
+            raise ValueError("Commission rate must be between 0 and 100.")
+        amount = Decimal(price)
+        if not amount.is_finite() or amount <= 0 or amount > 1000000:
+            raise ValueError("The imported product price is invalid.")
         product = Product(
-            title=title, slug="", description=title, price=Decimal(price), sku="",
-            is_affiliate=True, affiliate_url=url, aliexpress_item_id=request.form.get("item_id", "")[:80] or None,
-            aliexpress_product_id=request.form.get("item_id", "")[:80] or None,
-            aliexpress_source_url=request.form.get("source_url", "")[:2048] or None,
-            aliexpress_stock_status=request.form.get("stock_status", "")[:80] or None,
-            supplier_price=Decimal(price),
-            commission_rate=float(request.form.get("commission_rate", "0") or 0), category="Home & Living",
-            images=[request.form.get("image", "")[:2048]] if request.form.get("image", "").startswith("https://") else [],
+            title=title, slug="", description=title, price=amount, sku="",
+            is_affiliate=True, affiliate_url=url, aliexpress_item_id=item_id or None,
+            aliexpress_product_id=item_id or None,
+            aliexpress_source_url=source_url or None,
+            aliexpress_stock_status=stock_status or None,
+            supplier_price=amount,
+            commission_rate=commission, category="Home & Living",
+            images=[image] if image_url else [],
             is_active=False,
         )
-        if not title or product.price <= 0:
-            raise ValueError("The imported product title and price are required.")
         base = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:170]
         product.slug = f"{base}-{secrets.token_hex(3)}"
         product.sku = f"AN-{secrets.token_hex(5).upper()}"

@@ -1,10 +1,10 @@
 
 import os
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
-from flask import Flask, request
+from flask import Flask, request, session
 from flask_login import LoginManager
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -50,6 +50,29 @@ def create_app(test_config=None):
     if test_config:
         app.config.update(test_config)
 
+    production = bool(
+        not app.config.get("TESTING")
+        and (
+            app.config.get("IS_PRODUCTION")
+            or os.getenv("FLASK_ENV", "").lower() == "production"
+            or bool(os.getenv("VERCEL"))
+        )
+    )
+    if production:
+        from app.config import validate_secret_key
+
+        if not validate_secret_key(app.config.get("SECRET_KEY")):
+            raise RuntimeError(
+                "Production requires a non-placeholder SECRET_KEY of at least "
+                "32 characters. Set SECRET_KEY to a securely generated random value."
+            )
+        app.config.update(
+            SESSION_COOKIE_SECURE=True,
+            SESSION_COOKIE_HTTPONLY=True,
+            SESSION_COOKIE_SAMESITE="Lax",
+            PERMANENT_SESSION_LIFETIME=timedelta(days=7),
+        )
+
     from app.config import validate_aliexpress_config
     validate_aliexpress_config(app.config)
 
@@ -90,6 +113,11 @@ def create_app(test_config=None):
     app.register_blueprint(affiliate_bp)
     app.register_blueprint(admin_bp, url_prefix="/admin")
 
+    @app.before_request
+    def make_sessions_permanent():
+        if production:
+            session.permanent = True
+
     @app.context_processor
     def inject_store_settings():
         return {
@@ -116,14 +144,19 @@ def create_app(test_config=None):
 
         response.headers.setdefault(
             "Content-Security-Policy",
-            "default-src 'self'; img-src 'self' https: data:; "
-            "style-src 'self'; script-src 'self'; "
-            "font-src 'self' data:; connect-src 'self'; "
-            "form-action 'self'; frame-ancestors 'none'; "
-            "base-uri 'self'"
+            "default-src 'self'; "
+            "img-src 'self' https: data:; "
+            "style-src 'self' https://fonts.googleapis.com; "
+            "script-src 'self' https://js.stripe.com; "
+            "font-src 'self' data: https://fonts.gstatic.com; "
+            "connect-src 'self' https://api.stripe.com https://checkout.stripe.com; "
+            "frame-src https://js.stripe.com https://hooks.stripe.com "
+            "https://checkout.stripe.com; "
+            "form-action 'self' https://checkout.stripe.com; "
+            "frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
         )
 
-        if request.is_secure or app.config.get("SESSION_COOKIE_SECURE"):
+        if production:
             response.headers.setdefault(
                 "Strict-Transport-Security",
                 "max-age=31536000; includeSubDomains"

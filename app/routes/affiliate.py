@@ -4,11 +4,13 @@ from flask import Blueprint, abort, current_app, redirect, request
 
 from app import db
 from app.models import AffiliateClick, Product
+from app.security import persistent_limit
 
 affiliate_bp = Blueprint("affiliate", __name__, url_prefix="/affiliate")
 
 
 @affiliate_bp.get("/redirect/<int:product_id>")
+@persistent_limit(30, 60)
 def redirect_product(product_id):
     product = Product.query.filter_by(id=product_id, is_active=True, is_affiliate=True).first_or_404()
     destination = product.affiliate_url or ""

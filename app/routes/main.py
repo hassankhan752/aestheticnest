@@ -3,6 +3,7 @@ from sqlalchemy import or_
 
 from app import db
 from app.models import Product
+from app.security import persistent_limit
 
 main_bp = Blueprint("main", __name__)
 
@@ -15,9 +16,12 @@ def home():
 
 
 @main_bp.get("/shop")
+@persistent_limit(30, 60)
 def shop():
-    category = request.args.get("category", "")[:80]
-    query = request.args.get("q", "")[:100].strip()
+    category = request.args.get("category", "")
+    query = request.args.get("q", "").strip()
+    if len(category) > 80 or len(query) > 100:
+        abort(400)
     products_query = Product.query.filter_by(is_active=True, is_affiliate=False)
     if category:
         products_query = products_query.filter_by(category=category)

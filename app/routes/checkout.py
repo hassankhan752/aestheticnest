@@ -8,8 +8,9 @@ from flask_login import current_user
 from flask_wtf.csrf import validate_csrf
 from wtforms.validators import ValidationError
 
-from app import csrf, db, limiter
+from app import csrf, db
 from app.models import Order, OrderItem, Product
+from app.security import persistent_limit
 from app.services.payment import send_order_email, stripe_checkout
 
 checkout_bp = Blueprint("checkout", __name__)
@@ -106,17 +107,38 @@ def validate_shipping(form):
     except ValidationError:
         return "Your checkout session expired. Please refresh and try again."
     required = ["customer_name", "email", "phone", "address_line1", "city", "region", "postal_code", "country"]
-    if any(not clean(form.get(key), 254) for key in required):
+    field_limits = {
+        "customer_name": 160,
+        "email": 254,
+        "phone": 40,
+        "address_line1": 200,
+        "address_line2": 200,
+        "city": 100,
+        "region": 100,
+        "postal_code": 30,
+        "country": 2,
+    }
+    if any(
+        len(form.get(key, "") or "") > maximum
+        for key, maximum in field_limits.items()
+    ):
+        return "One or more delivery details are too long."
+    if any(not clean(form.get(key), field_limits[key]) for key in required):
         return "Complete all required delivery details."
     if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", clean(form.get("email"), 254)):
         return "Enter a valid email address."
-    if len(clean(form.get("phone"), 40)) < 7 or len(clean(form.get("country"), 2)) != 2:
+    phone = clean(form.get("phone"), 40)
+    if (
+        not re.fullmatch(r"[+0-9().\-\s]{7,40}", phone)
+        or sum(character.isdigit() for character in phone) < 7
+        or not re.fullmatch(r"[A-Za-z]{2}", clean(form.get("country"), 2))
+    ):
         return "Enter a valid phone number and two-letter country code."
     return None
 
 
 @checkout_bp.post("/checkout")
-@limiter.limit("5 per minute")
+@persistent_limit(5, 60)
 def submit_checkout():
     items, total = cart_items()
     if not items:

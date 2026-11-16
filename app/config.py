@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -18,6 +19,9 @@ if DATABASE_URL:
 
 
 class Config:
+    IS_PRODUCTION = os.getenv("FLASK_ENV", "").lower() == "production" or bool(
+        os.getenv("VERCEL")
+    )
     SECRET_KEY = os.getenv("SECRET_KEY") or ""
     SQLALCHEMY_DATABASE_URI = DATABASE_URL or (
         f"sqlite:///{BASE_DIR / 'instance' / 'database.sqlite'}"
@@ -37,6 +41,7 @@ class Config:
     REMEMBER_COOKIE_HTTPONLY = True
     REMEMBER_COOKIE_SAMESITE = "Lax"
     REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
+    PERMANENT_SESSION_LIFETIME = timedelta(days=7)
     WTF_CSRF_TIME_LIMIT = int(os.getenv("WTF_CSRF_TIME_LIMIT", "3600"))
     MAX_CONTENT_LENGTH = 3 * 1024 * 1024
     RATELIMIT_STORAGE_URI = os.getenv("RATELIMIT_STORAGE_URI", "memory://")
@@ -64,6 +69,34 @@ class Config:
     MAIL_USERNAME = os.getenv("MAIL_USERNAME", "")
     MAIL_PASSWORD = os.getenv("MAIL_PASSWORD", "")
     MAIL_DEFAULT_SENDER = os.getenv("MAIL_DEFAULT_SENDER", "")
+
+
+def validate_secret_key(secret_key):
+    value = str(secret_key or "").strip()
+    lowered = value.lower()
+    placeholders = (
+        "change-me",
+        "changeme",
+        "default",
+        "placeholder",
+        "replace-me",
+        "example",
+        "sample",
+        "insecure",
+        "development",
+        "your-secret",
+        "your_secret",
+        "secret-key",
+        "secret_key",
+        "test-only",
+        "test-secret",
+        "dev-only",
+        "dev-secret",
+        "secret",
+    )
+    return len(value) >= 32 and not any(
+        placeholder in lowered for placeholder in placeholders
+    )
 
 
 def validate_aliexpress_config(config):

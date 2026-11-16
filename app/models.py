@@ -34,6 +34,13 @@ class User(UserMixin, db.Model):
     orders = db.relationship("Order", back_populates="user")
 
 
+class RateLimitRecord(db.Model):
+    key = db.Column(db.String(255), primary_key=True)
+    count = db.Column(db.Integer, nullable=False)
+    window_start = db.Column(db.DateTime(timezone=True), nullable=False)
+    expires_at = db.Column(db.DateTime(timezone=True), nullable=False, index=True)
+
+
 class AliExpressToken(db.Model):
     __tablename__ = "aliexpress_token"
     id = db.Column(db.Integer, primary_key=True)
