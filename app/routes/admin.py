@@ -740,7 +740,10 @@ def settings():
         dropshipping_configured=api.dropshipping_configured,
         dropshipping_authorized=bool(dropshipping_token),
         stripe_configured=stripe_ready,
-        mail_configured=bool(\n            current_app.config.get("RESEND_API_KEY")\n            or (current_app.config.get("MAIL_SERVER") and current_app.config.get("MAIL_FROM"))\n        ),
+        mail_configured=bool(
+            current_app.config.get("RESEND_API_KEY")
+            or (current_app.config.get("MAIL_SERVER") and current_app.config.get("MAIL_FROM"))
+        ),
     )
 
 
