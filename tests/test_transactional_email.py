@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from app import create_app
+from app.routes.admin import _notify_shipping_if_changed
 from app.services.payment import send_order_email, send_shipping_email
 
 
@@ -31,6 +32,12 @@ class TransactionalEmailTests(unittest.TestCase):
 
     def tearDown(self):
         self.context.pop()
+
+    @patch("app.routes.admin.send_shipping_email")
+    def test_tracking_sync_notifies_when_tracking_first_appears(self, send_email):
+        order = Mock(fulfillment_status="placed", tracking_number="TRACK-NEW")
+        _notify_shipping_if_changed(order, "placed", None)
+        send_email.assert_called_once_with(order)
 
     @patch("app.services.payment.requests.post")
     def test_order_confirmation_uses_resend(self, post):
