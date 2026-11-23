@@ -81,15 +81,15 @@ def _send_email(recipient, subject, body):
 
 
 def send_order_email(order):
-    details = "\\n".join(
+    details = "\n".join(
         f"{item.quantity} × {item.product_title} — {order.currency} {item.unit_price:.2f}"
         for item in order.items
     )
     body = (
-        f"Hello {order.customer_name},\\n\\n"
+        f"Hello {order.customer_name},\n\n"
         f"We received your order {order.public_id[:8].upper()}. "
-        f"Payment status: {order.payment_status}.\\n\\n{details}\\n\\n"
-        f"Total: {order.currency} {order.total_amount:.2f}\\n\\n"
+        f"Payment status: {order.payment_status}.\n\n{details}\n\n"
+        f"Total: {order.currency} {order.total_amount:.2f}\n\n"
         "Thank you for choosing Aesthetic Nest."
     )
     return _send_email(
@@ -110,10 +110,10 @@ def send_shipping_email(order):
     tracking = order.tracking_number or "Tracking details are not available yet."
     carrier = order.logistics_service or "Carrier details will be shared when available."
     body = (
-        f"Hello {order.customer_name},\\n\\n{headline}\\n"
-        f"Order: {order.public_id[:8].upper()}\\n"
-        f"Tracking number: {tracking}\\n"
-        f"Carrier: {carrier}\\n\\n"
+        f"Hello {order.customer_name},\n\n{headline}\n"
+        f"Order: {order.public_id[:8].upper()}\n"
+        f"Tracking number: {tracking}\n"
+        f"Carrier: {carrier}\n\n"
         "Thank you for shopping with Aesthetic Nest."
     )
     return _send_email(
