@@ -49,8 +49,8 @@ def _send_email(recipient, subject, body):
         current_app.logger.info("Transactional email skipped: no mail provider configured")
         return False
 
-    try:
-        if resend_key:
+    if resend_key:
+        try:
             response = requests.post(
                 RESEND_ENDPOINT,
                 headers={
@@ -62,7 +62,15 @@ def _send_email(recipient, subject, body):
             )
             response.raise_for_status()
             return True
+        except Exception:
+            if not smtp_ready:
+                current_app.logger.exception("Resend email delivery failed")
+                return False
+            current_app.logger.exception("Resend delivery failed; attempting SMTP fallback")
 
+    if not smtp_ready:
+        return False
+    try:
         message = EmailMessage()
         message["Subject"] = subject
         message["From"] = sender
@@ -76,7 +84,7 @@ def _send_email(recipient, subject, body):
             smtp.send_message(message)
         return True
     except Exception:
-        current_app.logger.exception("Transactional email delivery failed")
+        current_app.logger.exception("SMTP transactional email delivery failed")
         return False
 
 
