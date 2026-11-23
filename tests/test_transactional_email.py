@@ -68,6 +68,17 @@ class TransactionalEmailTests(unittest.TestCase):
         self.assertFalse(send_order_email(self.order))
         post.assert_not_called()
 
+    @patch("app.services.payment.requests.post", side_effect=OSError("Resend unavailable"))
+    @patch("app.services.payment.smtplib.SMTP")
+    def test_smtp_is_used_when_resend_fails(self, smtp_class, post):
+        self.app.config.update(MAIL_SERVER="smtp.example.com")
+        smtp = smtp_class.return_value.__enter__.return_value
+
+        self.assertTrue(send_order_email(self.order))
+
+        post.assert_called_once()
+        smtp.send_message.assert_called_once()
+
     @patch("app.services.payment.smtplib.SMTP")
     def test_smtp_fallback_when_resend_is_not_configured(self, smtp_class):
         self.app.config.update(RESEND_API_KEY="", MAIL_SERVER="smtp.example.com")
