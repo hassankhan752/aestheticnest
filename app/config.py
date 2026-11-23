@@ -68,7 +68,10 @@ class Config:
     MAIL_USE_TLS = os.getenv("MAIL_USE_TLS", "true").lower() == "true"
     MAIL_USERNAME = os.getenv("MAIL_USERNAME", "")
     MAIL_PASSWORD = os.getenv("MAIL_PASSWORD", "")
-    MAIL_DEFAULT_SENDER = os.getenv("MAIL_DEFAULT_SENDER", "")
+    RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+    MAIL_FROM = os.getenv("MAIL_FROM") or os.getenv("DEFAULT_SENDER") or os.getenv("MAIL_DEFAULT_SENDER", "")
+    DEFAULT_SENDER = os.getenv("DEFAULT_SENDER", "")
+    MAIL_DEFAULT_SENDER = MAIL_FROM
 
 
 def validate_secret_key(secret_key):

@@ -1,8 +1,12 @@
 import smtplib
 from email.message import EmailMessage
 
+import requests
 import stripe
 from flask import current_app, url_for
+
+
+RESEND_ENDPOINT = "https://api.resend.com/emails"
 
 
 def stripe_checkout(order):
@@ -26,28 +30,110 @@ def stripe_checkout(order):
     return session
 
 
-def send_order_email(order):
-    cfg = current_app.config
-    if not all((cfg.get("MAIL_SERVER"), cfg.get("MAIL_DEFAULT_SENDER"))):
-        return False
-    message = EmailMessage()
-    message["Subject"] = f"Order received · {order.public_id[:8].upper()}"
-    message["From"] = cfg["MAIL_DEFAULT_SENDER"]
-    message["To"] = order.email
-    details = "\n".join(f"{item.quantity} × {item.product_title} — {order.currency} {item.unit_price:.2f}" for item in order.items)
-    message.set_content(
-        f"Hello {order.customer_name},\n\nWe received your order {order.public_id[:8].upper()}. "
-        f"Payment status: {order.payment_status}.\n\n{details}\n\n"
-        f"Total: {order.currency} {order.total_amount:.2f}\n\nAesthetic Nest"
+def _sender(config):
+    return (
+        config.get("MAIL_FROM")
+        or config.get("DEFAULT_SENDER")
+        or config.get("MAIL_DEFAULT_SENDER")
+        or ""
     )
+
+
+def _send_email(recipient, subject, body):
+    """Deliver through Resend first, otherwise configured SMTP; never break a store flow."""
+    cfg = current_app.config
+    sender = _sender(cfg)
+    resend_key = cfg.get("RESEND_API_KEY")
+    smtp_ready = bool(cfg.get("MAIL_SERVER") and sender)
+    if not sender or not (resend_key or smtp_ready):
+        current_app.logger.info("Transactional email skipped: no mail provider configured")
+        return False
+
+    if resend_key:
+        try:
+            response = requests.post(
+                RESEND_ENDPOINT,
+                headers={
+                    "Authorization": f"Bearer {resend_key}",
+                    "Content-Type": "application/json",
+                },
+                json={"from": sender, "to": [recipient], "subject": subject, "text": body},
+                timeout=12,
+            )
+            response.raise_for_status()
+            return True
+        except Exception:
+            if not smtp_ready:
+                current_app.logger.exception("Resend email delivery failed")
+                return False
+            current_app.logger.exception("Resend delivery failed; attempting SMTP fallback")
+
+    if not smtp_ready:
+        return False
     try:
-        with smtplib.SMTP(cfg["MAIL_SERVER"], cfg.get("MAIL_PORT", 587), timeout=15) as smtp:
+        message = EmailMessage()
+        message["Subject"] = subject
+        message["From"] = sender
+        message["To"] = recipient
+        message.set_content(body)
+        with smtplib.SMTP(cfg["MAIL_SERVER"], cfg.get("MAIL_PORT", 587), timeout=12) as smtp:
             if cfg.get("MAIL_USE_TLS"):
                 smtp.starttls()
             if cfg.get("MAIL_USERNAME"):
                 smtp.login(cfg["MAIL_USERNAME"], cfg.get("MAIL_PASSWORD", ""))
             smtp.send_message(message)
         return True
-    except (OSError, smtplib.SMTPException):
-        current_app.logger.exception("Order confirmation email failed for order %s", order.public_id)
+    except Exception:
+        current_app.logger.exception("SMTP transactional email delivery failed")
+        return False
+
+
+def send_order_email(order):
+    try:
+        details = "\\n".join(
+            f"{item.quantity} × {item.product_title} — {order.currency} {item.unit_price:.2f}"
+            for item in order.items
+        )
+        body = (
+            f"Hello {order.customer_name},\\n\\n"
+            f"We received your order {order.public_id[:8].upper()}. "
+            f"Payment status: {order.payment_status}.\\n\\n{details}\\n\\n"
+            f"Total: {order.currency} {order.total_amount:.2f}\\n\\n"
+            "Thank you for choosing Aesthetic Nest."
+        )
+        return _send_email(
+            order.email,
+            f"Order received · {order.public_id[:8].upper()}",
+            body,
+        )
+    except Exception:
+        current_app.logger.exception("Unable to prepare order confirmation email")
+        return False
+
+
+def send_shipping_email(order):
+    try:
+        status = (order.fulfillment_status or "shipped").lower()
+        if status == "delivered":
+            headline = "Your Aesthetic Nest order has been delivered."
+            subject_status = "delivered"
+        else:
+            headline = "Your Aesthetic Nest order is on its way."
+            subject_status = "shipped"
+        tracking = order.tracking_number or "Tracking details are not available yet."
+        carrier = order.logistics_service or "Carrier details will be shared when available."
+        body = (
+            f"Hello {order.customer_name},\\n\\n{headline}\\n"
+            f"Order: {order.public_id[:8].upper()}\\n"
+            f"Tracking number: {tracking}\\n"
+            f"Carrier: {carrier}\\n\\n"
+            "Thank you for shopping with Aesthetic Nest."
+        )
+        return _send_email(
+            order.email,
+            f"Your order has been {subject_status} · {order.public_id[:8].upper()}",
+            body,
+        )
+    except Exception:
+        current_app.logger.exception("Unable to prepare shipping notification email")
         return False

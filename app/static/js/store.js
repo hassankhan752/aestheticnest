@@ -34,3 +34,24 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   document.querySelector("[data-print]")?.addEventListener("click", () => window.print());
 });
+
+
+// Progressive form feedback. Native form submission and CSRF protection remain intact.
+document.addEventListener("submit", (event) => {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement) || event.defaultPrevented) return;
+  const submitter = event.submitter;
+  if (!form.matches("[data-loading-label]") && !submitter?.hasAttribute("data-loading-label")) return;
+
+  form.setAttribute("aria-busy", "true");
+  form.querySelectorAll('button[type="submit"], button:not([type])').forEach((button) => {
+    button.disabled = true;
+  });
+  if (submitter instanceof HTMLButtonElement) {
+    const label = submitter.dataset.loadingLabel || form.dataset.loadingLabel;
+    if (label) {
+      submitter.dataset.originalLabel = submitter.textContent;
+      submitter.textContent = label;
+    }
+  }
+});

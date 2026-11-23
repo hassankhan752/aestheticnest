@@ -4,7 +4,7 @@
 {% block admin_content %}
 <div class="admin-page-head">
   <div><p class="eyebrow">The order book</p><h1>Orders & <em>fulfilment.</em></h1><p>Review purchases, confirm payment, and manage supplier tracking.</p></div>
-  <form method="post" action="{{ url_for('admin.sync_all_aliexpress_tracking') }}">
+  <form method="post" action="{{ url_for('admin.sync_all_aliexpress_tracking') }}" data-loading-label="Syncing tracking…">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button class="button button-outline">Sync AliExpress tracking</button>
   </form>
@@ -29,21 +29,21 @@
           {% if order.fulfillment_error %}<small class="table-sub fulfillment-error">{{ order.fulfillment_error }}</small>{% endif %}
         </td>
         <td>
-          <form class="order-update-form" method="post" action="{{ url_for('admin.order_status', order_id=order.id) }}">
+          <form class="order-update-form" method="post" action="{{ url_for('admin.order_status', order_id=order.id) }}" data-loading-label="Saving order…">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <select name="status" aria-label="Order status"><option value="pending">Pending</option><option value="paid">Paid</option><option value="shipped">Shipped</option><option value="delivered">Delivered</option><option value="cancelled">Cancelled</option></select>
             <input name="tracking_number" placeholder="Tracking number" value="{{ order.tracking_number or '' }}">
             <button class="button button-small button-dark">Update</button>
           </form>
           {% if not order.aliexpress_order_id and order.fulfillment_status not in ['placed', 'shipped', 'delivered'] and order.payment_status != 'cancelled' %}
-          <form class="order-update-form ali-fulfill-form" method="post" action="{{ url_for('admin.fulfill_order_aliexpress', order_id=order.id) }}" data-confirm="Place this order with AliExpress now?">
+          <form class="order-update-form ali-fulfill-form" method="post" action="{{ url_for('admin.fulfill_order_aliexpress', order_id=order.id) }}" data-confirm="Place this order with AliExpress now?" data-loading-label="Sending to AliExpress…">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input name="logistics_service" maxlength="120" placeholder="Logistics service (optional)">
             <button class="button button-small button-outline">Fulfill via AliExpress</button>
           </form>
           {% endif %}
           {% if order.aliexpress_order_id %}
-          <form method="post" action="{{ url_for('admin.sync_order_tracking', order_id=order.id) }}">
+          <form method="post" action="{{ url_for('admin.sync_order_tracking', order_id=order.id) }}" data-loading-label="Syncing…">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="button button-small button-outline">Sync tracking</button>
           </form>

@@ -12,6 +12,7 @@ from sqlalchemy import func
 from app import db, limiter
 from app.models import AffiliateClick, AliExpressToken, Order, Product, User
 from app.security import admin_required, persistent_limit
+from app.services.payment import send_shipping_email
 from app.services.aliexpress_client import AliExpressAPIError, AliExpressOpenPlatformClient, client_from_config
 
 admin_bp = Blueprint("admin", __name__)
@@ -514,6 +515,17 @@ def packing_slip(order_id):
     return render_template("admin/packing_slip.html", order=order)
 
 
+def _notify_shipping_if_changed(order, previous_status, previous_tracking):
+    changed = (
+        order.fulfillment_status != previous_status
+        or order.tracking_number != previous_tracking
+    )
+    shipping_ready = order.fulfillment_status in {"shipped", "delivered"}
+    tracking_ready = order.tracking_number and order.tracking_number != previous_tracking
+    if changed and (shipping_ready or tracking_ready):
+        send_shipping_email(order)
+
+
 def _sync_order_tracking(order, client):
     order_ids = [value.strip() for value in (order.aliexpress_order_id or "").split(",") if value.strip()]
     if not order_ids:
@@ -614,9 +626,11 @@ def fulfill_order_aliexpress(order_id):
 @persistent_limit(30, 60)
 def sync_order_tracking(order_id):
     order = Order.query.get_or_404(order_id)
+    previous_status, previous_tracking = order.fulfillment_status, order.tracking_number
     try:
         _sync_order_tracking(order, client_from_config(current_app.config))
         db.session.commit()
+        _notify_shipping_if_changed(order, previous_status, previous_tracking)
         flash("AliExpress tracking information updated.", "success")
     except AliExpressAPIError as exc:
         db.session.rollback()
@@ -644,9 +658,11 @@ def sync_all_aliexpress_tracking():
     updated = 0
     failed = 0
     for order in orders:
+        previous_status, previous_tracking = order.fulfillment_status, order.tracking_number
         try:
             _sync_order_tracking(order, client)
             db.session.commit()
+            _notify_shipping_if_changed(order, previous_status, previous_tracking)
             updated += 1
         except AliExpressAPIError as exc:
             db.session.rollback()
@@ -662,6 +678,7 @@ def sync_all_aliexpress_tracking():
 @admin_required
 def order_status(order_id):
     order = Order.query.get_or_404(order_id)
+    previous_status, previous_tracking = order.fulfillment_status, order.tracking_number
     status = request.form.get("status", "")
     tracking = " ".join((request.form.get("tracking_number") or "").split())
     if len(tracking) > 100:
@@ -708,6 +725,7 @@ def order_status(order_id):
             return redirect(url_for("admin.orders_manage"))
         order.payment_status = status
     db.session.commit()
+    _notify_shipping_if_changed(order, previous_status, previous_tracking)
     flash("Order updated.", "success")
     return redirect(url_for("admin.orders_manage"))
 
@@ -724,7 +742,10 @@ def settings():
         dropshipping_configured=api.dropshipping_configured,
         dropshipping_authorized=bool(dropshipping_token),
         stripe_configured=stripe_ready,
-        mail_configured=bool(current_app.config.get("MAIL_SERVER")),
+        mail_configured=bool(
+            current_app.config.get("MAIL_FROM")
+            and (current_app.config.get("RESEND_API_KEY") or current_app.config.get("MAIL_SERVER"))
+        ),
     )
 
 
