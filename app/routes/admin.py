@@ -520,7 +520,9 @@ def _notify_shipping_if_changed(order, previous_status, previous_tracking):
         order.fulfillment_status != previous_status
         or order.tracking_number != previous_tracking
     )
-    if changed and order.fulfillment_status in {"shipped", "delivered"}:
+    shipping_ready = order.fulfillment_status in {"shipped", "delivered"}
+    tracking_ready = order.tracking_number and order.tracking_number != previous_tracking
+    if changed and (shipping_ready or tracking_ready):
         send_shipping_email(order)
 
 
